@@ -1,6 +1,5 @@
 // api/_health/kv.js
 import { kv } from '@vercel/kv';
-
 export default async function handler(req, res) {
   try {
     if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
@@ -13,7 +12,6 @@ export default async function handler(req, res) {
     await kv.del(key);
     return res.json({ ok: true, wrote: val, readBack });
   } catch (e) {
-    console.error('KV selftest error:', e);
     return res.status(500).json({ ok: false, error: String(e) });
   }
 }
