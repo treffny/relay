@@ -1,3 +1,4 @@
+export const config = { runtime: 'nodejs20.x' };
 import { kv } from '@vercel/kv';
 import { generateCodeVerifier, codeChallengeS256, randomId } from '../../lib/pkce.js';
 
