@@ -1,4 +1,6 @@
 // api/canva/[...path].js
+export const config = { runtime: 'nodejs' };
+
 export default async function handler(req, res) {
   try {
     const incoming = new URL(req.url, `https://${req.headers.host}`);
