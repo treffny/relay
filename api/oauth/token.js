@@ -1,3 +1,4 @@
+export const config = { runtime: 'nodejs20.x' };
 import { kv } from '@vercel/kv';
 
 const CANVA_CLIENT_ID = process.env.CANVA_CLIENT_ID;
