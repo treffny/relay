@@ -1,61 +1,59 @@
-# Canva OAuth Relay for ChatGPT Actions
+# Canva OAuth Relay v2 for ChatGPT Actions
 
-This repo gives you a tiny OAuth relay that satisfies Canva PKCE and returns Canva tokens to ChatGPT Actions. Deploy on Vercel. Point your Action OAuth to the relay. Your Action can then call Canva REST with the returned Bearer token.
+A minimal relay that satisfies Canva PKCE and server-side token exchange, then returns Canva tokens to ChatGPT Actions.
 
-## Repository layout
-1. `api/oauth/authorize.js` starts the flow. It creates a PKCE pair and redirects to Canva.
-2. `api/oauth/callback.js` handles Canva redirect, exchanges the code for Canva tokens, then issues a one time code back to ChatGPT.
-3. `api/oauth/token.js` is the token endpoint for ChatGPT. It returns Canva tokens for `authorization_code` and refreshes on `refresh_token`.
-4. `openapi.yaml` is a starter spec for your Action. Replace RELAY_BASE_URL with your deployed relay domain.
-5. `lib/pkce.js` contains PKCE helpers.
-6. `vercel.json` configures Node runtime. Vercel KV is used for short lived storage.
-
-## Prerequisites
-1. Canva Developer account and an app created in the Canva Developer Portal.
-2. Vercel account with the Vercel KV integration enabled for this project.
-3. ChatGPT Plus account to create an Action.
+## Routes
+- `GET /api/oauth/authorize` – Builds the Canva authorisation URL with PKCE (S256) and redirects the user to Canva.
+- `GET /api/oauth/callback` – Receives the Canva `code`, exchanges it for tokens at Canva, then redirects back to ChatGPT with a one-time `code`.
+- `POST /api/oauth/token` – ChatGPT exchanges the one-time `code` for tokens here. Also supports `grant_type=refresh_token`.
 
 ## Environment variables
-Set these in Vercel Project Settings
-- `CANVA_CLIENT_ID` your Canva app client id
-- `CANVA_CLIENT_SECRET` your Canva app client secret
-- `CANVA_SCOPES` scopes separated by spaces. Suggested minimal set
+Set these in Vercel Project Settings:
+- `CANVA_CLIENT_ID`
+- `CANVA_CLIENT_SECRET`
+- `CANVA_SCOPES` (default provided):  
   `design:content:read design:content:write folder:read autofill:write autofill:read`
-- `RELAY_BASE_URL` your deployed Vercel domain for example `https://your-relay.vercel.app`
-Vercel KV variables are created by the integration automatically.
+- `RELAY_BASE_URL` e.g. `https://your-relay.vercel.app`
 
-## Step by step: Canva setup
-1. Open Canva Developer Portal
-2. Create an app or open your existing app
-3. Copy the Client ID and Client Secret
-4. Add this exact redirect to Authorized redirect URIs
-   `https://YOUR-RELAY-DOMAIN/api/oauth/callback`
-5. Tick the scopes you intend to request. Keep to the minimal set at first
+> Add the **Vercel KV** integration to this project.
 
-## Step by step: Vercel deploy
-1. Create a new Vercel project from this repository
-2. Add the environment variables listed above
-3. Add the Vercel KV integration to the project
-4. Deploy. After deploy, note the public domain. Use it for RELAY_BASE_URL
+## Deploy on Vercel
+1. Push this repo to GitHub and import into Vercel.
+2. Add the env vars listed above.
+3. Add the Vercel KV integration.
+4. Deploy. Note the public domain and set `RELAY_BASE_URL` accordingly.
 
-## Step by step: ChatGPT Action
-1. Create a new Action
-2. Paste `openapi.yaml` and replace RELAY_BASE_URL with your relay domain
-3. In the OAuth section set
-   Authorization URL to `https://YOUR-RELAY-DOMAIN/api/oauth/authorize`
-   Token URL to `https://YOUR-RELAY-DOMAIN/api/oauth/token`
-   Client ID leave blank or any placeholder. The relay handles Canva Client authentication
-   Client Secret leave blank
-4. Save the Action. ChatGPT will generate a Callback URL but you can ignore it since the relay handles OAuth. The relay callback is what Canva uses
-5. Start auth. The browser will go to your relay then to Canva. Approve access. The relay returns a one time code to ChatGPT which it swaps for tokens at the relay token endpoint
-6. Call Canva endpoints from your Action paths for example POST `/designs` then POST `/exports`
+## Canva Developer Portal
+1. Open your Canva app.
+2. Add this exact redirect URI: `https://YOUR-RELAY-DOMAIN/api/oauth/callback`
+3. Tick only the scopes you request.
+4. Copy Client ID and Client Secret into Vercel env vars.
 
-## Notes
-- Tokens are stored in Vercel KV only for the few seconds needed to hand them to ChatGPT or to process a refresh.
-- You can expand the relay to proxy the Canva REST calls if you prefer, but it is not required.
+## ChatGPT Action OpenAPI
+Point OAuth to the **relay**. Keep API server as Canva REST.
+
+```yaml
+components:
+  securitySchemes:
+    oAuth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://YOUR-RELAY-DOMAIN/api/oauth/authorize
+          tokenUrl: https://YOUR-RELAY-DOMAIN/api/oauth/token
+          scopes:
+            design:content:write: Create designs
+            design:content:read: Read designs and export
+            folder:read: Read folders and items
+            autofill:write: Create autofill jobs
+            autofill:read: Read autofill job status
+
+servers:
+  - url: https://api.canva.com/rest/v1
+    description: Canva REST base
+```
 
 ## Troubleshooting
-1. If you see an LHR incident code during authorize, check that CANVA_CLIENT_ID is set and your Canva redirect matches `https://YOUR-RELAY-DOMAIN/api/oauth/callback`
-2. If ChatGPT says it cannot get a token, check the Vercel logs for `authorization_code` flow errors in `api/oauth/token.js`
-3. If refresh fails, confirm the client secret and that your Canva app permits refresh tokens
-
+- **LHR incident code on Canva**: check `CANVA_CLIENT_ID`, scopes, and that the relay callback is whitelisted.
+- **Action cannot get token**: open Vercel logs for `/api/oauth/callback` and `/api/oauth/token`.
+- **Vercel legacy runtime error**: ensure there is **no `vercel.json`** in the repo and the Project uses Node.js 20 with auto-detected functions.
