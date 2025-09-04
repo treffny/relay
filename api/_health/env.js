@@ -1,4 +1,4 @@
-/api/_health/env.js
+api/_health/env.js
 export default async function handler(req, res) {
   const present = (name) => Boolean(process.env[name] && process.env[name].trim());
   res.json({
