@@ -5,17 +5,14 @@ const CANVA_CLIENT_ID = process.env.CANVA_CLIENT_ID;
 const CANVA_SCOPES = process.env.CANVA_SCOPES || 'design:content:read design:content:write folder:read autofill:write autofill:read';
 const RELAY_BASE_URL = process.env.RELAY_BASE_URL; // e.g. https://your-relay.vercel.app
 
-if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-  console.error('[Relay] Vercel KV is not configured: missing KV_REST_API_URL or KV_REST_API_TOKEN');
-  return res.status(500).send('Server not configured: Vercel KV missing');
-}
-
-
 export default async function handler(req, res) {
   try {
     if (!CANVA_CLIENT_ID || !RELAY_BASE_URL) {
-      res.status(500).send('Missing CANVA_CLIENT_ID or RELAY_BASE_URL');
-      return;
+      return res.status(500).send('Missing CANVA_CLIENT_ID or RELAY_BASE_URL');
+    }
+    if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+      console.error('[Relay] Missing KV env vars');
+      return res.status(500).send('Server not configured: Vercel KV missing');
     }
 
     const url = new URL(req.url, `https://${req.headers.host}`);
@@ -23,15 +20,14 @@ export default async function handler(req, res) {
     const chatgptState = url.searchParams.get('state') || '';
 
     if (!chatgptRedirect) {
-      res.status(400).send('Missing redirect_uri from ChatGPT');
-      return;
+      return res.status(400).send('Missing redirect_uri from ChatGPT');
     }
 
     const sessionId = randomId('sess_');
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = codeChallengeS256(codeVerifier);
 
-    // Store session for callback (expires in 10 minutes)
+    // store session for callback (10 min TTL)
     await kv.set(sessionId, JSON.stringify({
       chatgptRedirect,
       chatgptState,
