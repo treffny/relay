@@ -1,3 +1,4 @@
+export const config = { runtime: 'nodejs20.x' };
 // api/oauth/callback.js
 import { kv } from '@vercel/kv';
 import { randomId } from '../../lib/pkce.js';
