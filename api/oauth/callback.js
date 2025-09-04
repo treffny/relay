@@ -1,5 +1,6 @@
-export const config = { runtime: 'nodejs20.x' };
 // api/oauth/callback.js
+export const config = { runtime: 'nodejs20.x' };
+
 import { kv } from '@vercel/kv';
 import { randomId } from '../../lib/pkce.js';
 
@@ -8,89 +9,124 @@ const CANVA_CLIENT_SECRET = process.env.CANVA_CLIENT_SECRET;
 const RELAY_BASE_URL = process.env.RELAY_BASE_URL;
 
 export default async function handler(req, res) {
-  try {
-    const url = new URL(req.url, `https://${req.headers.host}`);
-    const oauthError = url.searchParams.get('error');
-    const oauthErrorDesc = url.searchParams.get('error_description') || '';
-    const code = url.searchParams.get('code');
-    const sessionId = url.searchParams.get('state');
+  const log = [];
+  const say = (msg, obj) => {
+    const line = obj ? `${msg} ${JSON.stringify(obj)}` : msg;
+    console.error('[callback]', line);
+    log.push(line);
+  };
 
-    // Quick env sanity
+  try {
+    const host = req.headers.host || 'localhost';
+    const url = new URL(req.url, `https://${host}`);
+
+    const code       = url.searchParams.get('code');
+    const sessionId  = url.searchParams.get('state');
+    const oerr       = url.searchParams.get('error');
+    const oerrDesc   = url.searchParams.get('error_description') || '';
+
+    say('incoming', { haveCode: !!code, haveState: !!sessionId, error: oerr });
+
+    // Env sanity
     if (!CANVA_CLIENT_ID || !CANVA_CLIENT_SECRET || !RELAY_BASE_URL) {
-      console.error('[callback] Missing env', {
-        hasId: !!CANVA_CLIENT_ID, hasSecret: !!CANVA_CLIENT_SECRET, hasRelay: !!RELAY_BASE_URL
-      });
-      return res.status(500).send('Server not configured: missing Canva env vars');
+      const msg = 'Server not configured: missing Canva env vars';
+      say(msg, { hasId: !!CANVA_CLIENT_ID, hasSecret: !!CANVA_CLIENT_SECRET, hasRelay: !!RELAY_BASE_URL });
+      return res.status(500).send(msg + '\n' + log.join('\n'));
     }
     if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-      console.error('[callback] Missing KV env vars');
-      return res.status(500).send('Server not configured: Vercel KV missing');
+      const msg = 'Server not configured: Vercel KV missing';
+      say(msg);
+      return res.status(500).send(msg + '\n' + log.join('\n'));
     }
 
-    // Handle OAuth error from Canva (e.g., invalid_scope)
-    if (oauthError) {
-      console.error('[callback] Canva returned error', oauthError, oauthErrorDesc);
+    // If Canva sent an OAuth error (e.g., invalid_scope)
+    if (oerr) {
+      say('oauth error from Canva', { oerr, oerrDesc, sessionId });
       if (sessionId) {
-        const raw = await kv.get(sessionId);
+        const raw = await kv.get(sessionId).catch(e => (say('kv.get error', {e: String(e)}), null));
         const session = raw ? JSON.parse(raw) : null;
         if (session?.chatgptRedirect) {
           const redirect = new URL(session.chatgptRedirect);
-          redirect.searchParams.set('error', oauthError);
-          redirect.searchParams.set('error_description', oauthErrorDesc);
+          redirect.searchParams.set('error', oerr);
+          redirect.searchParams.set('error_description', oerrDesc);
           if (session.chatgptState) redirect.searchParams.set('state', session.chatgptState);
           res.writeHead(302, { Location: redirect.toString() });
           return res.end();
         }
       }
-      return res.status(400).send(`Authorization failed: ${oauthError} – ${oauthErrorDesc}`);
+      return res.status(400).send(`Authorization failed: ${oerr} – ${oerrDesc}\n` + log.join('\n'));
     }
 
-    // Must have code + state on success
     if (!code || !sessionId) {
-      console.error('[callback] Missing code or state', { hasCode: !!code, sessionId });
-      return res.status(400).send('Missing code or state');
+      const msg = 'Missing code or state';
+      say(msg, { code, sessionId });
+      return res.status(400).send(msg + '\n' + log.join('\n'));
     }
 
-    // Load session (chatgptRedirect, chatgptState, codeVerifier)
-    const raw = await kv.get(sessionId);
+    // Load session (PKCE verifier etc.)
+    const raw = await kv.get(sessionId).catch(e => (say('kv.get error', {e: String(e)}), null));
     if (!raw) {
-      console.error('[callback] Session not found/expired', { sessionId });
-      return res.status(400).send('Session not found or expired');
+      const msg = 'Session not found or expired';
+      say(msg, { sessionId });
+      return res.status(400).send(msg + '\n' + log.join('\n'));
     }
     const session = JSON.parse(raw);
     if (!session.codeVerifier) {
-      console.error('[callback] Missing codeVerifier in session');
-      return res.status(400).send('PKCE verifier missing');
+      const msg = 'PKCE verifier missing in session';
+      say(msg);
+      return res.status(400).send(msg + '\n' + log.join('\n'));
     }
 
-    // Exchange code with Canva
-    const bodyParams = new URLSearchParams({
-      grant_type: 'authorization_code',
+    // Exchange code with Canva (be extra compatible: include client_id param AND Basic)
+    const tokenURL = 'https://api.canva.com/rest/v1/oauth/token';
+    const params = new URLSearchParams({
+      grant_type:    'authorization_code',
       code,
-      redirect_uri: `${RELAY_BASE_URL}/api/oauth/callback`,
-      code_verifier: session.codeVerifier
+      redirect_uri:  `${RELAY_BASE_URL}/api/oauth/callback`,
+      code_verifier: session.codeVerifier,
+      client_id:     CANVA_CLIENT_ID
     });
+    const headers = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept':       'application/json',
+      'Authorization': 'Basic ' + Buffer.from(`${CANVA_CLIENT_ID}:${CANVA_CLIENT_SECRET}`).toString('base64')
+    };
 
-    const tokenResp = await fetch('https://api.canva.com/rest/v1/oauth/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': 'Basic ' + Buffer.from(`${CANVA_CLIENT_ID}:${CANVA_CLIENT_SECRET}`).toString('base64')
-      },
-      body: bodyParams
-    });
+    say('token request', { url: tokenURL, body: Object.fromEntries(params) });
+    const r = await fetch(tokenURL, { method: 'POST', headers, body: params });
+    const bodyText = await r.text();
+    say('token response', { status: r.status, bodyPreview: bodyText.slice(0, 500) });
 
-    const text = await tokenResp.text();
-    if (!tokenResp.ok) {
-      console.error('[callback] Token exchange failed', tokenResp.status, text);
-      return res
-        .status(500)
-        .send(`Token exchange failed (status ${tokenResp.status}). Body: ${text}`);
+    if (!r.ok) {
+      return res.status(502).send(`Token exchange failed (status ${r.status}). Body: ${bodyText}\n` + log.join('\n'));
     }
 
     let tokenJson;
     try {
-      tokenJson = JSON.parse(text);
+      tokenJson = JSON.parse(bodyText);
     } catch (e) {
-      console.error('[callback] Token JSON parse failed', text);
-      return res.status(500).send('Tok
+      say('json parse failed', { e: String(e) });
+      return res.status(500).send('Token parse failed\n' + log.join('\n'));
+    }
+
+    // Issue one-time code for ChatGPT
+    const chatgptCode = randomId('code_');
+    await kv.set(chatgptCode, JSON.stringify({
+      provider: 'canva',
+      token: tokenJson,
+      createdAt: Date.now()
+    }), { ex: 300 }).catch(e => (say('kv.set error', {e: String(e)})));
+
+    // Redirect back to ChatGPT with the one-time code
+    const redirect = new URL(session.chatgptRedirect);
+    redirect.searchParams.set('code', chatgptCode);
+    if (session.chatgptState) redirect.searchParams.set('state', session.chatgptState);
+
+    res.writeHead(302, { Location: redirect.toString() });
+    res.end();
+  } catch (e) {
+    console.error('[callback] crashed', e);
+    return res.status(500).send('Callback crashed:\n' + (e && e.stack ? e.stack : String(e)));
+  }
+}
+
