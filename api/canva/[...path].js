@@ -1,17 +1,16 @@
 // api/canva/[...path].js
 export default async function handler(req, res) {
   try {
-    // Build the target Canva URL
     const incoming = new URL(req.url, `https://${req.headers.host}`);
-    const pathAfterPrefix = incoming.pathname.replace(/^\/api\/canva\/?/, ''); // strip /api/canva/
+    const pathAfterPrefix = incoming.pathname.replace(/^\/api\/canva\/?/, '');
     const target = new URL(`https://api.canva.com/rest/v1/${pathAfterPrefix}${incoming.search}`);
 
-    // Read body (if any)
+    // read body
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const body = chunks.length ? Buffer.concat(chunks) : undefined;
 
-    // Forward headers (keep auth & content-type; drop hop-by-hop)
+    // forward headers
     const headers = new Headers();
     const copyHeader = (name) => {
       const val = req.headers[name.toLowerCase()];
@@ -27,9 +26,7 @@ export default async function handler(req, res) {
       body: (req.method === 'GET' || req.method === 'HEAD') ? undefined : body,
     });
 
-    // Pipe back status, headers, body
     res.statusCode = resp.status;
-    // pass through JSON-ish headers; avoid hop-by-hop
     resp.headers.forEach((v, k) => {
       if (!['transfer-encoding', 'content-encoding'].includes(k)) {
         res.setHeader(k, v);
