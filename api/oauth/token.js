@@ -25,8 +25,7 @@ export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') {
       res.setHeader('Allow', 'POST');
-      res.status(405).send('Method Not Allowed');
-      return;
+      return res.status(405).send('Method Not Allowed');
     }
 
     const body = await parseBody(req);
@@ -35,31 +34,27 @@ export default async function handler(req, res) {
     if (grantType === 'authorization_code') {
       const code = body.code;
       if (!code) {
-        res.status(400).json({ error: 'invalid_request', error_description: 'Missing code' });
-        return;
+        return res.status(400).json({ error: 'invalid_request', error_description: 'Missing code' });
       }
       const raw = await kv.get(code);
       if (!raw) {
-        res.status(400).json({ error: 'invalid_grant', error_description: 'Unknown or expired code' });
-        return;
+        return res.status(400).json({ error: 'invalid_grant', error_description: 'Unknown or expired code' });
       }
-      await kv.del(code);
+      await kv.del(code); // one-time use
       const saved = JSON.parse(raw);
-      res.json({
+      return res.json({
         access_token: saved.token.access_token,
         token_type: saved.token.token_type || 'Bearer',
         expires_in: saved.token.expires_in,
         refresh_token: saved.token.refresh_token,
         scope: saved.token.scope
       });
-      return;
     }
 
     if (grantType === 'refresh_token') {
       const refresh = body.refresh_token;
       if (!refresh) {
-        res.status(400).json({ error: 'invalid_request', error_description: 'Missing refresh_token' });
-        return;
+        return res.status(400).json({ error: 'invalid_request', error_description: 'Missing refresh_token' });
       }
 
       const tokenResp = await fetch('https://api.canva.com/rest/v1/oauth/token', {
@@ -77,29 +72,25 @@ export default async function handler(req, res) {
       const text = await tokenResp.text();
       if (!tokenResp.ok) {
         console.error('Refresh failed', tokenResp.status, text);
-        res.status(400).json({ error: 'invalid_grant', error_description: 'Refresh failed' });
-        return;
+        return res.status(400).json({ error: 'invalid_grant', error_description: 'Refresh failed' });
       }
       let tokenJson;
-      try {
-        tokenJson = JSON.parse(text);
-      } catch {
+      try { tokenJson = JSON.parse(text); }
+      catch {
         console.error('Invalid refresh JSON', text);
-        res.status(500).json({ error: 'server_error' });
-        return;
+        return res.status(500).json({ error: 'server_error' });
       }
 
-      res.json({
+      return res.json({
         access_token: tokenJson.access_token,
         token_type: tokenJson.token_type || 'Bearer',
         expires_in: tokenJson.expires_in,
         refresh_token: tokenJson.refresh_token || refresh,
         scope: tokenJson.scope
       });
-      return;
     }
 
-    res.status(400).json({ error: 'unsupported_grant_type', error_description: 'Use authorization_code or refresh_token' });
+    return res.status(400).json({ error: 'unsupported_grant_type', error_description: 'Use authorization_code or refresh_token' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'server_error' });
