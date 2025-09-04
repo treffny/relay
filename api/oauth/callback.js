@@ -12,14 +12,12 @@ export default async function handler(req, res) {
     const sessionId = url.searchParams.get('state');
 
     if (!code || !sessionId) {
-      res.status(400).send('Missing code or state');
-      return;
+      return res.status(400).send('Missing code or state');
     }
 
     const raw = await kv.get(sessionId);
     if (!raw) {
-      res.status(400).send('Session not found or expired');
-      return;
+      return res.status(400).send('Session not found or expired');
     }
     const session = JSON.parse(raw);
 
@@ -41,20 +39,17 @@ export default async function handler(req, res) {
     const text = await tokenResp.text();
     if (!tokenResp.ok) {
       console.error('Token exchange failed', tokenResp.status, text);
-      res.status(500).send('Token exchange failed');
-      return;
+      return res.status(500).send('Token exchange failed');
     }
 
     let tokenJson;
-    try {
-      tokenJson = JSON.parse(text);
-    } catch {
+    try { tokenJson = JSON.parse(text); }
+    catch {
       console.error('Invalid token JSON', text);
-      res.status(500).send('Token parse failed');
-      return;
+      return res.status(500).send('Token parse failed');
     }
 
-    // Issue one-time code for ChatGPT to fetch tokens
+    // Issue a one-time code for ChatGPT to fetch tokens here
     const chatgptCode = randomId('code_');
     await kv.set(chatgptCode, JSON.stringify({
       provider: 'canva',
