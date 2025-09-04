@@ -5,6 +5,12 @@ const CANVA_CLIENT_ID = process.env.CANVA_CLIENT_ID;
 const CANVA_SCOPES = process.env.CANVA_SCOPES || 'design:content:read design:content:write folder:read autofill:write autofill:read';
 const RELAY_BASE_URL = process.env.RELAY_BASE_URL; // e.g. https://your-relay.vercel.app
 
+if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+  console.error('[Relay] Vercel KV is not configured: missing KV_REST_API_URL or KV_REST_API_TOKEN');
+  return res.status(500).send('Server not configured: Vercel KV missing');
+}
+
+
 export default async function handler(req, res) {
   try {
     if (!CANVA_CLIENT_ID || !RELAY_BASE_URL) {
