@@ -1,11 +1,8 @@
 {
-  "name": "canva-oauth-relay-v2",
+  "name": "canva-oauth-relay",
   "version": "1.0.0",
   "type": "module",
-  "license": "MIT",
-  "engines": {
-    "node": ">=20"
-  },
+  "engines": { "node": ">=18" },
   "dependencies": {
     "@vercel/kv": "^1.0.0"
   },
